@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Person Tracker - Video Analysis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .upload-section {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .upload-area {
+            border: 3px dashed #ddd;
+            border-radius: 10px;
+            padding: 60px 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background-color: #f8f9ff;
+        }
+
+        .upload-area.drag-over {
+            border-color: #667eea;
+            background-color: #f0f4ff;
+        }
+
+        .upload-icon {
+            font-size: 4em;
+            color: #ddd;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 1.3em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .upload-subtext {
+            color: #999;
+            font-size: 0.9em;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .options-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .options-title {
+            font-size: 1.4em;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+
+        .option-group {
+            margin-bottom: 20px;
+        }
+
+        .option-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .option-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+        }
+
+        .option-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-input {
+            width: auto;
+            transform: scale(1.2);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-section {
+            display: none;
+            text-align: center;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+
+        .progress-title {
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .result-section {
+            display: none;
+            text-align: center;
+            padding: 30px;
+            background: #f0f8ff;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+
+        .result-title {
+            font-size: 1.4em;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            text-decoration: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            font-size: 1.1em;
+            display: inline-block;
+            transition: transform 0.2s ease;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .error-section {
+            display: none;
+            text-align: center;
+            padding: 30px;
+            background: #ffe6e6;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+
+        .error-title {
+            font-size: 1.4em;
+            margin-bottom: 15px;
+            color: #d32f2f;
+        }
+
+        .error-message {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+
+        .feature-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            border-color: #667eea;
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .feature-icon {
+            font-size: 2.5em;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+
+        .feature-title {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+
+        .feature-description {
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Person Tracker</h1>
+            <p>Advanced video analysis with flow line visualization</p>
+        </div>
+
+        <div class="content">
+            <!-- Upload Section -->
+            <div class="upload-section">
+                <!-- Video Upload -->
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📹</div>
+                    <div class="upload-text">Drag & drop your video here</div>
+                    <div class="upload-subtext">or click to browse (MP4, AVI, MOV, MKV, WMV - max 500MB)</div>
+                </div>
+                <input type="file" id="videoFile" class="file-input" accept=".mp4,.avi,.mov,.mkv,.wmv">
+
+                <!-- Reference Image Upload -->
+                <div class="upload-area" id="refImageArea" style="margin-top: 20px; border-color: #28a745;">
+                    <div class="upload-icon">📷</div>
+                    <div class="upload-text">Drag & drop reference image here (Optional)</div>
+                    <div class="upload-subtext">or click to browse (JPG, PNG, BMP - for automatic person detection)</div>
+                </div>
+                <input type="file" id="refImageFile" class="file-input" accept=".jpg,.jpeg,.png,.bmp">
+            </div>
+
+            <!-- Options Section -->
+            <div class="options-section">
+                <h3 class="options-title">🔧 Processing Options</h3>
+                
+                <div class="option-group">
+                    <label class="option-label" for="viewMode">View Mode:</label>
+                    <select id="viewMode" class="option-input">
+                        <option value="flow">Flow Lines (Trajectory + Bounding Box)</option>
+                        <option value="box">Bounding Box Only</option>
+                        <option value="both">Side-by-Side Comparison</option>
+                    </select>
+                </div>
+
+                <div class="option-group">
+                    <label class="option-label" for="confidence">Detection Confidence (0.1 - 1.0):</label>
+                    <input type="range" id="confidence" class="option-input" min="0.1" max="1.0" step="0.1" value="0.5">
+                    <span id="confidenceValue">0.5</span>
+                </div>
+
+                <div class="option-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="manualSelect" class="checkbox-input">
+                        <label class="option-label" for="manualSelect">Enable Manual Person Selection</label>
+                    </div>
+                </div>
+
+                <button id="processBtn" class="btn" disabled>🚀 Start Processing</button>
+            </div>
+
+            <!-- Progress Section -->
+            <div class="progress-section" id="progressSection">
+                <div class="spinner"></div>
+                <h3 class="progress-title">Processing Your Video...</h3>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="progress-text" id="progressText">Initializing...</p>
+            </div>
+
+            <!-- Result Section -->
+            <div class="result-section" id="resultSection">
+                <h3 class="result-title">✅ Processing Complete!</h3>
+                <p style="margin-bottom: 20px;">Your tracked video is ready for download.</p>
+                <a href="#" id="downloadLink" class="download-btn">📥 Download Tracked Video</a>
+            </div>
+
+            <!-- Error Section -->
+            <div class="error-section" id="errorSection">
+                <h3 class="error-title">❌ Processing Failed</h3>
+                <p class="error-message" id="errorMessage">An error occurred during processing.</p>
+                <button class="btn" onclick="resetForm()" style="margin-top: 20px; background: #d32f2f;">Try Again</button>
+            </div>
+
+            <!-- Features Grid -->
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <div class="feature-title">Person Detection</div>
+                    <div class="feature-description">Advanced AI-powered person detection using YOLOv8</div>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <div class="feature-title">Multi-Object Tracking</div>
+                    <div class="feature-description">Consistent tracking across frames with DeepSORT</div>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">📈</div>
+                    <div class="feature-title">Flow Line Visualization</div>
+                    <div class="feature-description">Beautiful trajectory visualization with fading effects</div>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">⏱️</div>
+                    <div class="feature-title">Timestamp Detection</div>
+                    <div class="feature-description">Automatic detection of when person enters frame</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentJobId = null;
+
+        // DOM elements
+        const uploadArea = document.getElementById('uploadArea');
+        const refImageArea = document.getElementById('refImageArea');
+        const videoFile = document.getElementById('videoFile');
+        const refImageFile = document.getElementById('refImageFile');
+        const processBtn = document.getElementById('processBtn');
+        const progressSection = document.getElementById('progressSection');
+        const resultSection = document.getElementById('resultSection');
+        const errorSection = document.getElementById('errorSection');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const downloadLink = document.getElementById('downloadLink');
+        const errorMessage = document.getElementById('errorMessage');
+        const confidenceSlider = document.getElementById('confidence');
+        const confidenceValue = document.getElementById('confidenceValue');
+
+        // Update confidence value display
+        confidenceSlider.addEventListener('input', function() {
+            confidenceValue.textContent = this.value;
+        });
+
+        // File upload handling
+        uploadArea.addEventListener('click', () => videoFile.click());
+        uploadArea.addEventListener('dragover', (e) => handleDragOver(e, uploadArea));
+        uploadArea.addEventListener('dragleave', (e) => handleDragLeave(e, uploadArea));
+        uploadArea.addEventListener('drop', (e) => handleDrop(e, videoFile, 'video'));
+        videoFile.addEventListener('change', handleFileSelect);
+
+        refImageArea.addEventListener('click', () => refImageFile.click());
+        refImageArea.addEventListener('dragover', (e) => handleDragOver(e, refImageArea));
+        refImageArea.addEventListener('dragleave', (e) => handleDragLeave(e, refImageArea));
+        refImageArea.addEventListener('drop', (e) => handleDrop(e, refImageFile, 'image'));
+        refImageFile.addEventListener('change', handleRefImageSelect);
+
+        function handleDragOver(e, area) {
+            e.preventDefault();
+            area.classList.add('drag-over');
+        }
+
+        function handleDragLeave(e, area) {
+            e.preventDefault();
+            area.classList.remove('drag-over');
+        }
+
+        function handleDrop(e, fileInput, type) {
+            e.preventDefault();
+            const area = type === 'video' ? uploadArea : refImageArea;
+            area.classList.remove('drag-over');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                if (type === 'video') {
+                    handleFileSelect();
+                } else {
+                    handleRefImageSelect();
+                }
+            }
+        }
+
+        function handleFileSelect() {
+            const file = videoFile.files[0];
+            if (file) {
+                const uploadText = uploadArea.querySelector('.upload-text');
+                const uploadSubtext = uploadArea.querySelector('.upload-subtext');
+                uploadText.textContent = `Selected: ${file.name}`;
+                uploadSubtext.textContent = `Size: ${(file.size / (1024*1024)).toFixed(2)} MB`;
+                checkReadyToProcess();
+            }
+        }
+
+        function handleRefImageSelect() {
+            const file = refImageFile.files[0];
+            const refText = refImageArea.querySelector('.upload-text');
+            const refSubtext = refImageArea.querySelector('.upload-subtext');
+            
+            if (file) {
+                refText.textContent = `Reference: ${file.name}`;
+                refSubtext.textContent = `Size: ${(file.size / (1024)).toFixed(1)} KB - Will auto-detect this person`;
+                // Disable manual selection when reference image is provided
+                document.getElementById('manualSelect').checked = false;
+                document.getElementById('manualSelect').disabled = true;
+            } else {
+                refText.textContent = 'Drag & drop reference image here (Optional)';
+                refSubtext.textContent = 'or click to browse (JPG, PNG, BMP - for automatic person detection)';
+                document.getElementById('manualSelect').disabled = false;
+            }
+            checkReadyToProcess();
+        }
+
+        function checkReadyToProcess() {
+            processBtn.disabled = !videoFile.files[0];
+        }
+
+        // Process button handling
+        processBtn.addEventListener('click', function() {
+            if (!videoFile.files[0]) {
+                alert('Please select a video file first.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('video', videoFile.files[0]);
+            formData.append('view_mode', document.getElementById('viewMode').value);
+            formData.append('confidence', document.getElementById('confidence').value);
+            formData.append('manual_select', document.getElementById('manualSelect').checked);
+            
+            // Add reference image if provided
+            if (refImageFile.files[0]) {
+                formData.append('reference_image', refImageFile.files[0]);
+            }
+
+            // Show progress section
+            hideAllSections();
+            progressSection.style.display = 'block';
+            
+            // Upload and start processing
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                currentJobId = data.job_id;
+                checkStatus();
+            })
+            .catch(error => {
+                showError(error.message);
+            });
+        });
+
+        // Status checking
+        function checkStatus() {
+            if (!currentJobId) return;
+
+            fetch(`/status/${currentJobId}`)
+            .then(response => response.json())
+            .then(data => {
+                updateProgress(data.status, data.progress);
+                
+                if (data.status === 'completed') {
+                    showResult(data.download_url);
+                } else if (data.status === 'failed') {
+                    showError(data.error_message || 'Processing failed');
+                } else {
+                    // Continue checking
+                    setTimeout(checkStatus, 2000);
+                }
+            })
+            .catch(error => {
+                showError('Failed to check processing status');
+            });
+        }
+
+        function updateProgress(status, progress) {
+            const statusMessages = {
+                'queued': 'Waiting in queue...',
+                'processing': 'Analyzing video and tracking persons...',
+                'completed': 'Processing complete!',
+                'failed': 'Processing failed'
+            };
+
+            progressText.textContent = statusMessages[status] || 'Processing...';
+            
+            // Simulate progress for visual feedback
+            if (status === 'processing') {
+                const currentWidth = parseFloat(progressFill.style.width) || 0;
+                const targetWidth = Math.min(90, currentWidth + 10);
+                progressFill.style.width = `${targetWidth}%`;
+            } else if (status === 'completed') {
+                progressFill.style.width = '100%';
+            }
+        }
+
+        function showResult(downloadUrl) {
+            hideAllSections();
+            resultSection.style.display = 'block';
+            downloadLink.href = downloadUrl;
+        }
+
+        function showError(message) {
+            hideAllSections();
+            errorSection.style.display = 'block';
+            errorMessage.textContent = message;
+        }
+
+        function hideAllSections() {
+            progressSection.style.display = 'none';
+            resultSection.style.display = 'none';
+            errorSection.style.display = 'none';
+        }
+
+        function resetForm() {
+            hideAllSections();
+            videoFile.value = '';
+            refImageFile.value = '';
+            
+            // Reset video upload area
+            const uploadText = uploadArea.querySelector('.upload-text');
+            const uploadSubtext = uploadArea.querySelector('.upload-subtext');
+            uploadText.textContent = 'Drag & drop your video here';
+            uploadSubtext.textContent = 'or click to browse (MP4, AVI, MOV, MKV, WMV - max 500MB)';
+            
+            // Reset reference image area
+            const refText = refImageArea.querySelector('.upload-text');
+            const refSubtext = refImageArea.querySelector('.upload-subtext');
+            refText.textContent = 'Drag & drop reference image here (Optional)';
+            refSubtext.textContent = 'or click to browse (JPG, PNG, BMP - for automatic person detection)';
+            
+            processBtn.disabled = true;
+            currentJobId = null;
+            progressFill.style.width = '0%';
+            document.getElementById('manualSelect').disabled = false;
+        }
+    </script>
+</body>
+</html>

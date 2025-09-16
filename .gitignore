@@ -1,0 +1,59 @@
+# Person Tracker - Essential Files Only
+
+# Ignore temporary and generated files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.venv/
+venv/
+env/
+
+# Ignore output directories
+output/
+uploads/
+models/downloads/
+
+# Ignore test files and temporary outputs
+test_*.py
+*_test.py
+test_output.*
+*.avi
+*.mp4
+
+# Ignore documentation drafts and analysis files
+*_ANALYSIS.md
+*_TEST_RESULTS.md
+ACCURACY_SOLUTIONS.md
+EMBEDDING_COMPONENTS.md
+ENHANCED_SYSTEM_STATUS.md
+ENHANCED_TRACKING_ANALYSIS.md
+TIMESTAMP_FEATURES.md
+WHAT_WE_EXTRACT_SUMMARY.md
+accuracy_test_results.json
+
+# Ignore example and demo files
+demo.py
+examples.py
+run.bat
+run.sh
+
+# Ignore IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Keep essential model file but ignore large downloads
+!yolov8n.pt
+models/downloads/
+
+# Keep essential images but ignore uploaded files
+images/
+!images/Traget\ Person.png
+
+# Keep essential videos but ignore uploaded files
+videos/
+!videos/Task_Video.mp4
