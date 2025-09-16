@@ -50,6 +50,11 @@ Thumbs.db
 !yolov8n.pt
 models/downloads/
 
+# Ignore large YOLO model files (downloaded automatically)
+yolov8m.pt
+yolov8l.pt
+yolov8x.pt
+
 # Keep essential images but ignore uploaded files
 images/
 !images/Traget\ Person.png
