@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import warnings
 from ultralytics import YOLO
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import torch
 import os
 import logging
@@ -435,6 +435,9 @@ class PersonDetector:
                 print(f"Could not load reference image: {image_path}")
                 return None
             
+            # Store reference image for color validation
+            self.reference_image = image.copy()
+            
             # Resize to standard size
             image = cv2.resize(image, Config.REFERENCE_IMAGE_SIZE)
             return image
@@ -442,6 +445,102 @@ class PersonDetector:
         except Exception as e:
             print(f"Error loading reference image: {e}")
             return None
+    
+    def validate_target_colors(self, crop: np.ndarray, reference_crop: np.ndarray) -> float:
+        """
+        Validate target person based on color characteristics from reference image.
+        
+        Args:
+            crop: Current person crop
+            reference_crop: Reference person crop
+            
+        Returns:
+            Color validation score (0-1, higher is better match)
+        """
+        try:
+            if crop is None or reference_crop is None:
+                return 0.0
+            
+            # Resize both crops to same size for comparison
+            target_size = (128, 256)  # width, height
+            crop_resized = cv2.resize(crop, target_size)
+            ref_resized = cv2.resize(reference_crop, target_size)
+            
+            # Convert to HSV for better color analysis
+            crop_hsv = cv2.cvtColor(crop_resized, cv2.COLOR_BGR2HSV)
+            ref_hsv = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2HSV)
+            
+            # Focus on clothing regions (lower 2/3 of image)
+            clothing_start = target_size[1] // 3
+            crop_clothing = crop_hsv[clothing_start:, :]
+            ref_clothing = ref_hsv[clothing_start:, :]
+            
+            # Calculate color histograms for clothing region
+            crop_hist = cv2.calcHist([crop_clothing], [0, 1], None, [32, 32], [0, 180, 0, 256])
+            ref_hist = cv2.calcHist([ref_clothing], [0, 1], None, [32, 32], [0, 180, 0, 256])
+            
+            # Normalize histograms
+            cv2.normalize(crop_hist, crop_hist, 0, 1, cv2.NORM_MINMAX)
+            cv2.normalize(ref_hist, ref_hist, 0, 1, cv2.NORM_MINMAX)
+            
+            # Compare histograms using correlation
+            color_similarity = cv2.compareHist(crop_hist, ref_hist, cv2.HISTCMP_CORREL)
+            
+            # Look for specific colors in reference (green jacket, blue trolley)
+            ref_colors = self._extract_dominant_colors(ref_clothing)
+            crop_colors = self._extract_dominant_colors(crop_clothing)
+            
+            # Check for green (jacket) and blue (trolley) presence
+            green_score = self._check_color_presence(crop_colors, ref_colors, 'green')
+            blue_score = self._check_color_presence(crop_colors, ref_colors, 'blue')
+            
+            # Combine scores - heavily weight the specific colors
+            final_score = (color_similarity * 0.4 + green_score * 0.4 + blue_score * 0.2)
+            return max(0.0, min(1.0, final_score))
+            
+        except Exception as e:
+            logging.warning(f"Error in color validation: {e}")
+            return 0.0
+    
+    def _extract_dominant_colors(self, hsv_region: np.ndarray) -> Dict[str, float]:
+        """Extract dominant color scores from HSV region"""
+        try:
+            # Define color ranges in HSV
+            color_ranges = {
+                'green': [(40, 40, 40), (80, 255, 255)],    # Green range for jacket
+                'blue': [(100, 40, 40), (130, 255, 255)],   # Blue range for trolley
+                'red': [(0, 40, 40), (10, 255, 255)],       # Red range
+                'yellow': [(20, 40, 40), (30, 255, 255)],   # Yellow range
+            }
+            
+            scores = {}
+            total_pixels = hsv_region.shape[0] * hsv_region.shape[1]
+            
+            for color_name, (lower, upper) in color_ranges.items():
+                lower = np.array(lower)
+                upper = np.array(upper)
+                mask = cv2.inRange(hsv_region, lower, upper)
+                color_pixels = np.sum(mask > 0)
+                scores[color_name] = color_pixels / total_pixels if total_pixels > 0 else 0.0
+                
+            return scores
+            
+        except Exception:
+            return {'green': 0.0, 'blue': 0.0, 'red': 0.0, 'yellow': 0.0}
+    
+    def _check_color_presence(self, crop_colors: Dict[str, float], ref_colors: Dict[str, float], 
+                            color: str) -> float:
+        """Check if a specific color is present in both crops"""
+        crop_presence = crop_colors.get(color, 0.0)
+        ref_presence = ref_colors.get(color, 0.0)
+        
+        # Both should have significant presence of the color
+        if ref_presence > 0.05:  # Reference has this color (5% of pixels)
+            if crop_presence > 0.03:  # Candidate also has this color (3% of pixels)
+                # Return similarity score
+                return min(1.0, (crop_presence + ref_presence) / 2.0)
+        
+        return 0.0
     
     def find_best_match(self, frame: np.ndarray, detections: List[Tuple[int, int, int, int, float]], 
                        reference_embedding: np.ndarray) -> Optional[Tuple[int, int, int, int, float, float]]:

@@ -66,18 +66,16 @@ class Visualizer:
         """
         x1, y1, x2, y2 = bbox
         
-        # Choose color based on whether it's the target
+        # Choose color and style based on whether it's the target
         if is_target:
-            color = (0, 0, 255)  # Red for target
-            thickness = self.line_thickness + 1
+            # Make target bounding box much more prominent
+            color = (0, 255, 0)  # Bright green for target
+            thickness = max(4, self.line_thickness + 3)  # Much thicker line
+            # Draw double border for extra visibility
+            cv2.rectangle(frame, (x1-2, y1-2), (x2+2, y2+2), (0, 0, 0), thickness+2)  # Black outer border
         else:
-            if track_id is None:
-                color = self.bbox_color
-            else:
-                # Ensure track_id is an integer for indexing
-                track_id_int = int(track_id) if isinstance(track_id, (str, float)) else track_id
-                color = self.get_track_color(track_id_int)
-            thickness = self.line_thickness
+            # Don't draw bounding boxes for non-target people
+            return frame
         
         # Draw rectangle
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
@@ -89,29 +87,43 @@ class Visualizer:
         if confidence is not None:
             label_parts.append(f"{confidence:.2f}")
         if is_target:
-            label_parts.append("TARGET")
+            label_parts.append("🎯 TARGET")
         
         if label_parts:
             label = " | ".join(label_parts)
             
-            # Calculate text size
+            # Calculate text size - make target labels larger
             font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.6
-            font_thickness = 2
+            if is_target:
+                font_scale = 0.8  # Larger font for target
+                font_thickness = 3
+                text_color = (255, 255, 255)  # White text
+                bg_color = (0, 255, 0)  # Green background
+            else:
+                font_scale = 0.6
+                font_thickness = 2
+                text_color = (255, 255, 255)
+                bg_color = color
+            
             (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
             
-            # Draw label background
-            cv2.rectangle(frame, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)
+            # Draw enhanced label background
+            bg_rect_height = text_height + 15 if is_target else text_height + 10
+            cv2.rectangle(frame, (x1, y1 - bg_rect_height), (x1 + text_width + 10, y1), bg_color, -1)
+            
+            # Add border for target labels
+            if is_target:
+                cv2.rectangle(frame, (x1, y1 - bg_rect_height), (x1 + text_width + 10, y1), (0, 0, 0), 2)
             
             # Draw label text
-            cv2.putText(frame, label, (x1, y1 - 5), font, font_scale, (255, 255, 255), font_thickness)
+            cv2.putText(frame, label, (x1 + 5, y1 - 8), font, font_scale, text_color, font_thickness)
         
         return frame
     
     def draw_flow_line(self, frame: np.ndarray, trajectory: List[Tuple[int, int]], 
                       color: Optional[Tuple[int, int, int]] = None) -> np.ndarray:
         """
-        Draw flow line (trajectory) on frame.
+        Draw enhanced, highly visible flow line (trajectory) on frame.
         
         Args:
             frame: Input frame
@@ -124,27 +136,83 @@ class Visualizer:
         if len(trajectory) < 2:
             return frame
         
-        line_color = color or self.flow_line_color
+        # Use bright, highly visible colors
+        line_color = color or (0, 255, 255)  # Bright yellow/cyan
+        shadow_color = (0, 0, 0)  # Black shadow for contrast
         
         # Convert trajectory to numpy array
         points = np.array(trajectory, dtype=np.int32)
         
-        # Draw trajectory line
-        cv2.polylines(frame, [points], False, line_color, self.flow_line_thickness)
+        # Draw shadow/outline for better visibility
+        thick_line_thickness = max(8, self.flow_line_thickness + 4)
+        cv2.polylines(frame, [points], False, shadow_color, thick_line_thickness)
         
-        # Draw points with fading effect
+        # Draw main trajectory line (thicker and brighter)
+        main_line_thickness = max(6, self.flow_line_thickness + 2)
+        cv2.polylines(frame, [points], False, line_color, main_line_thickness)
+        
+        # Draw gradient line from start to end for direction indication
+        if len(trajectory) > 1:
+            # Create color gradient from blue to red (showing direction)
+            for i in range(len(trajectory) - 1):
+                progress = i / (len(trajectory) - 1)
+                # Color transition: Blue -> Green -> Yellow -> Red
+                if progress < 0.33:
+                    # Blue to Green
+                    local_progress = progress / 0.33
+                    gradient_color = (255, int(255 * local_progress), 0)
+                elif progress < 0.66:
+                    # Green to Yellow
+                    local_progress = (progress - 0.33) / 0.33
+                    gradient_color = (255, 255, int(255 * local_progress))
+                else:
+                    # Yellow to Red
+                    local_progress = (progress - 0.66) / 0.34
+                    gradient_color = (int(255 * (1 - local_progress)), 255, 255)
+                
+                pt1 = trajectory[i]
+                pt2 = trajectory[i + 1]
+                cv2.line(frame, pt1, pt2, gradient_color, 4)
+        
+        # Draw enhanced points with pulsing effect
         for i, (x, y) in enumerate(trajectory):
-            # Calculate alpha for fading effect (newer points are more opaque)
-            alpha = (i + 1) / len(trajectory)
-            radius = max(2, int(4 * alpha))
+            # Calculate size for pulsing effect (newer points are larger)
+            progress = (i + 1) / len(trajectory)
+            base_radius = 3
+            pulse_radius = int(base_radius + 4 * progress)
             
-            # Draw circle
-            cv2.circle(frame, (x, y), radius, line_color, -1)
+            # Draw outer glow
+            cv2.circle(frame, (x, y), pulse_radius + 2, (255, 255, 255), 2)
+            # Draw main point
+            cv2.circle(frame, (x, y), pulse_radius, line_color, -1)
+            # Draw inner highlight
+            cv2.circle(frame, (x, y), max(1, pulse_radius - 2), (255, 255, 255), -1)
         
-        # Highlight the most recent point
+        # Highlight the most recent point with special animation
         if trajectory:
             x, y = trajectory[-1]
-            cv2.circle(frame, (x, y), 6, line_color, 2)
+            # Large pulsing circle for current position
+            cv2.circle(frame, (x, y), 12, (0, 0, 0), 3)  # Black border
+            cv2.circle(frame, (x, y), 10, (0, 255, 0), -1)  # Bright green fill
+            cv2.circle(frame, (x, y), 6, (255, 255, 255), -1)  # White center
+            
+            # Add direction arrow if we have enough points
+            if len(trajectory) >= 2:
+                prev_x, prev_y = trajectory[-2]
+                # Calculate direction vector
+                dx = x - prev_x
+                dy = y - prev_y
+                length = np.sqrt(dx*dx + dy*dy)
+                if length > 5:  # Only draw arrow if there's significant movement
+                    # Normalize and scale
+                    dx, dy = dx/length, dy/length
+                    arrow_length = 20
+                    arrow_x = int(x + dx * arrow_length)
+                    arrow_y = int(y + dy * arrow_length)
+                    
+                    # Draw direction arrow
+                    cv2.arrowedLine(frame, (x, y), (arrow_x, arrow_y), 
+                                  (0, 255, 0), 3, tipLength=0.3)
         
         return frame
     
@@ -188,9 +256,10 @@ class Visualizer:
     def draw_all_tracks(self, frame: np.ndarray, tracked_objects: List[Tuple[int, int, int, int, int]],
                        trajectories: Dict[int, List[Tuple[int, int]]] = None,
                        target_person_id: Optional[int] = None,
-                       view_mode: str = "flow") -> np.ndarray:
+                       view_mode: str = "flow",
+                       complete_target_trajectory: List[Tuple[int, int]] = None) -> np.ndarray:
         """
-        Draw all tracked objects with their trajectories.
+        Draw only target person's track and trajectory (others are filtered out).
         
         Args:
             frame: Input frame
@@ -198,32 +267,39 @@ class Visualizer:
             trajectories: Dictionary of track_id -> trajectory points
             target_person_id: ID of target person to highlight
             view_mode: "box" for bounding boxes only, "flow" for boxes + trajectories
+            complete_target_trajectory: Complete trajectory for target person (optional)
             
         Returns:
-            Frame with all visualizations drawn
+            Frame with target person visualization only
         """
         result_frame = frame.copy()
         
-        # Draw trajectories first (so they appear behind bounding boxes)
-        if view_mode == "flow" and trajectories:
-            for track_id, trajectory in trajectories.items():
-                if len(trajectory) > 1:
-                    is_target = (track_id == target_person_id)
-                    color = (0, 0, 255) if is_target else self.get_track_color(track_id)
-                    
-                    if is_target:
-                        # Use fading effect for target trajectory
-                        result_frame = self.draw_trajectory_with_fade(result_frame, trajectory, color)
-                    else:
-                        # Simple line for other trajectories
-                        result_frame = self.draw_flow_line(result_frame, trajectory, color)
+        # Only draw trajectory for target person
+        if view_mode in ["flow", "trail"] and target_person_id is not None:
+            # Use complete trajectory if provided, otherwise fall back to regular trajectory
+            trajectory_to_draw = None
+            
+            if complete_target_trajectory and len(complete_target_trajectory) > 1:
+                trajectory_to_draw = complete_target_trajectory
+            elif trajectories and target_person_id in trajectories:
+                trajectory_to_draw = trajectories[target_person_id]
+            
+            if trajectory_to_draw and len(trajectory_to_draw) > 1:
+                color = (0, 0, 255)  # Red color for target
+                
+                if view_mode == "flow":
+                    # Use fading effect for target trajectory
+                    result_frame = self.draw_trajectory_with_fade(result_frame, trajectory_to_draw, color)
+                else:  # trail mode
+                    # Simple line for trail view
+                    result_frame = self.draw_flow_line(result_frame, trajectory_to_draw, color)
         
-        # Draw bounding boxes
+        # Only draw bounding box for target person
         for x1, y1, x2, y2, track_id in tracked_objects:
-            is_target = (track_id == target_person_id)
-            result_frame = self.draw_bounding_box(
-                result_frame, (x1, y1, x2, y2), track_id, is_target=is_target
-            )
+            if track_id == target_person_id:  # Only draw target person's box
+                result_frame = self.draw_bounding_box(
+                    result_frame, (x1, y1, x2, y2), track_id, is_target=True
+                )
         
         return result_frame
     

@@ -6,7 +6,7 @@ import os
 
 class Config:
     # Model settings
-    YOLO_MODEL = "yolov8n.pt"  # YOLOv8 nano model for speed
+    YOLO_MODEL = "yolov8n.pt"  # YOLOv8 nano model - small and fast
     CONFIDENCE_THRESHOLD = 0.5
     IOU_THRESHOLD = 0.45
     
@@ -16,9 +16,9 @@ class Config:
     
     # Visualization settings
     BBOX_COLOR = (0, 255, 0)      # Green bounding box
-    FLOW_LINE_COLOR = (0, 0, 255) # Red flow line  
+    FLOW_LINE_COLOR = (0, 0, 200) # Darker red flow line for better visibility
     LINE_THICKNESS = 2
-    FLOW_LINE_THICKNESS = 3
+    FLOW_LINE_THICKNESS = 5       # Thicker flow lines for better visibility
     TRAIL_LENGTH = 50             # Number of points in the trail
     
     # Video settings

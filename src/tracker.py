@@ -21,11 +21,11 @@ class EarlyDetectionFilter:
     def __init__(self, reference_embedding):
         self.reference_embedding = reference_embedding
         self.detection_history = []
-        self.confidence_threshold = 0.75  # Higher threshold initially
-        self.frames_for_confirmation = 8   # Require sustained detection
+        self.confidence_threshold = 0.82  # Much higher threshold initially
+        self.frames_for_confirmation = 12   # Require more sustained detection
         
     def validate_early_detection(self, candidate_embedding, frame_number):
-        """Prevent false positives in early frames"""
+        """Prevent false positives in early frames with ultra-strict validation"""
         
         # Compute similarity
         if (np.linalg.norm(candidate_embedding) == 0 or 
@@ -49,24 +49,36 @@ class EarlyDetectionFilter:
             if frame_number - d['frame'] <= 10
         ]
         
-        # For very early frames, be extra strict
-        if frame_number < 30:
-            required_frames = min(self.frames_for_confirmation, max(1, frame_number // 3))
+        # For very early frames, be strict but practical for video screenshots
+        if frame_number < 20:
+            # Must have high similarity (reduced for video screenshot references)
+            if similarity < 0.80:
+                return False
+            required_frames = min(self.frames_for_confirmation, max(5, frame_number // 2))
+        elif frame_number < 50:
+            # Strict for frames 20-50 (more lenient for video screenshots)
+            if similarity < 0.78:
+                return False
+            required_frames = min(8, max(3, frame_number // 4))
         else:
             required_frames = 3  # Less strict after initial frames
         
-        # Require sustained high confidence
+        # Require sustained ultra-high confidence
         if len(self.detection_history) >= required_frames:
             recent_similarities = [d['similarity'] for d in self.detection_history[-required_frames:]]
             
-            # All recent frames must be above threshold
-            if all(s > self.confidence_threshold for s in recent_similarities):
-                # Additional check: similarity should be stable or increasing
+            # All recent frames must be above threshold AND show consistent quality
+            threshold = 0.85 if frame_number < 20 else self.confidence_threshold
+            if all(s > threshold for s in recent_similarities):
+                # Additional check: similarity should be stable and high
                 if len(recent_similarities) > 1:
                     trend = np.mean(np.diff(recent_similarities))
-                    if trend >= -0.03:  # Allow slight decrease
+                    mean_similarity = np.mean(recent_similarities)
+                    
+                    # Must maintain very high average similarity with stable trend
+                    if mean_similarity > threshold and trend >= -0.02:
                         return True
-                else:
+                elif recent_similarities[0] > threshold:
                     return True
                     
         return False
@@ -114,7 +126,7 @@ class PersonTracker:
         self.target_lost_frames = 0  # Count frames since target was lost
         self.max_lost_frames = 30  # Max frames to try recovery
         self.confidence_window = 10  # Number of recent frames to consider
-        self.min_target_confidence = 0.4  # Minimum confidence to trust tracking
+        self.min_target_confidence = 0.3  # Minimum confidence to trust tracking (more lenient)
         
         # Enhanced validation system
         self.validation_buffer_size = 5
@@ -196,7 +208,11 @@ class PersonTracker:
             
             self.trajectories[track_id].append((center_x, center_y, self.frame_count))
             
-            # Keep only recent trajectory points
+            # Update complete target trajectory if this is the target person
+            if track_id == self.target_person_id:
+                self.update_complete_target_trajectory((center_x, center_y))
+            
+            # Keep only recent trajectory points (for regular trajectories)
             if len(self.trajectories[track_id]) > Config.TRAIL_LENGTH:
                 self.trajectories[track_id] = self.trajectories[track_id][-Config.TRAIL_LENGTH:]
             
@@ -255,8 +271,6 @@ class PersonTracker:
             if self.target_lost_frames > self.max_lost_frames:
                 print(f"⚠️  Target person lost for {self.target_lost_frames} frames - searching for recovery")
             return False
-                
-        return True  # Give it a few frames to recover
             
         # Compute embedding for current target
         try:
@@ -275,8 +289,7 @@ class PersonTracker:
             else:
                 confidence, metrics = self.compute_robust_similarity(current_embedding, self.target_person_embedding)
                 
-            # Store embeddings for obstruction recovery
-            self.store_pre_obstruction_embeddings(frame, detector)
+            # Note: Skip storing embeddings during validation to avoid circular dependency
             
             # Add to confidence history
             self.target_confidence_history.append(confidence)
@@ -295,19 +308,10 @@ class PersonTracker:
             print(f"  Enhanced validation: confidence={confidence:.3f} (cosine: {metrics['cosine']:.3f}, euclidean: {metrics['euclidean']:.3f})")
             print(f"  Dynamic threshold: {dynamic_threshold:.3f}, Consensus: {consensus_valid}")
             
-            # Enhanced validation logic
-            validation_passed = (
-                confidence >= dynamic_threshold and 
-                consensus_valid and
-                confidence >= self.min_target_confidence
-            )
-            
-            if not validation_passed:
-                print(f"  ⚠️  Enhanced validation failed: confidence={confidence:.3f}, threshold={dynamic_threshold:.3f}, consensus={consensus_valid}")
-                return False
-                
-            if confidence < 0.3:  # Very low single-frame confidence
-                print(f"⚠️  Single frame confidence very low: {confidence:.3f}")
+            # Simplified validation logic - be more stable once target is found
+            # Use only minimum confidence check for ongoing tracking
+            if confidence < self.min_target_confidence:
+                print(f"  ⚠️  Validation failed: confidence={confidence:.3f} < {self.min_target_confidence:.3f}")
                 return False
                 
             return True
@@ -319,52 +323,146 @@ class PersonTracker:
     def find_target_person_from_embedding(self, detections: List[Tuple[int, int, int, int, float]], 
                                         embeddings: List[np.ndarray], 
                                         reference_embedding: np.ndarray,
-                                        similarity_threshold: float = None) -> Optional[int]:
+                                        similarity_threshold: float = None,
+                                        frame: np.ndarray = None,
+                                        detector = None) -> Optional[int]:
         """
-        Find target person based on embedding similarity.
+        Find target person based on embedding similarity with enhanced validation.
         
         Args:
             detections: List of detections
             embeddings: List of embeddings for each detection
             reference_embedding: Reference embedding to match against
             similarity_threshold: Minimum similarity threshold
+            frame: Current video frame for color validation
+            detector: Detector instance for color validation
             
         Returns:
-            Track ID of target person if found, None otherwise
+            Detection index of target person if found, None otherwise
         """
         if not detections or not embeddings:
             return None
             
-        threshold = similarity_threshold or Config.EMBEDDING_SIMILARITY_THRESHOLD
+        # Use ultra-strict threshold for initial target detection to prevent wrong selections
+        base_threshold = similarity_threshold or Config.EMBEDDING_SIMILARITY_THRESHOLD
+        
+        # Much stricter threshold for initial detection
+        if self.target_person_id is None:  # First-time detection
+            strict_threshold = max(base_threshold, 0.80)  # Strict but achievable for initial detection
+        else:
+            strict_threshold = max(base_threshold, 0.75)  # Normal threshold for tracking
         
         # Initialize early detection filter if not exists
         if self.early_detection_filter is None:
             self.early_detection_filter = EarlyDetectionFilter(reference_embedding)
         
-        # Compare embeddings directly instead of updating tracks
-        # We don't need to create tracks here, just find best matching embedding
-        
-        best_similarity = 0.0
-        best_track_id = None
+        candidates = []
         
         for i, embedding in enumerate(embeddings):
-            # Compute similarity with reference using robust metrics
+            # Skip invalid embeddings
             if np.linalg.norm(embedding) == 0 or np.linalg.norm(reference_embedding) == 0:
                 continue
+            
+            # Get detection info for additional validation
+            detection = detections[i]
+            x1, y1, x2, y2, conf = detection
+            
+            # Apply minimum confidence threshold
+            if conf < 0.60:  # Balanced confidence requirement
+                continue
                 
+            # Compute similarity with reference using robust metrics
             similarity, metrics = self.compute_robust_similarity(embedding, reference_embedding)
             
-            # Use early detection filter to prevent false positives
-            if self.frame_count < 50:  # Apply early detection filtering
-                if not self.early_detection_filter.validate_early_detection(embedding, self.frame_count):
-                    print(f"  Early detection filter rejected candidate {i} (similarity: {similarity:.3f})")
+            # Calculate detection area for size validation
+            det_area = (x2 - x1) * (y2 - y1)
+            
+            candidates.append({
+                'index': i,
+                'similarity': similarity,
+                'confidence': conf,
+                'area': det_area,
+                'embedding': embedding,
+                'cosine': metrics.get('cosine', 0),
+                'euclidean': metrics.get('euclidean', 1)
+            })
+            
+            print(f"  Candidate {i}: similarity={similarity:.3f}, conf={conf:.3f}, area={det_area:.0f}")
+        
+        if not candidates:
+            return None
+        
+        # Sort candidates by similarity descending
+        candidates.sort(key=lambda x: x['similarity'], reverse=True)
+        
+        # Enhanced validation for target selection with color-based filtering
+        for candidate in candidates:
+            similarity = candidate['similarity']
+            confidence = candidate['confidence']
+            area = candidate['area']
+            
+            # Apply strict similarity threshold - much higher for initial detection
+            min_similarity = 0.75 if self.target_person_id is None else strict_threshold
+            if similarity < min_similarity:
+                print(f"  Rejected candidate {candidate['index']}: similarity {similarity:.3f} < {min_similarity:.3f}")
+                continue
+            
+            # Apply early detection filter to prevent false positives
+            if self.frame_count < 30:  # More restrictive early detection
+                if not self.early_detection_filter.validate_early_detection(candidate['embedding'], self.frame_count):
+                    print(f"  Early detection filter rejected candidate {candidate['index']} (similarity: {similarity:.3f})")
                     continue
             
-            if similarity > best_similarity and similarity >= threshold:
-                best_similarity = similarity
-                best_detection_idx = i
+            # Additional validation: reasonable detection size
+            if area < 2000:  # Minimum area threshold
+                print(f"  Rejected candidate {candidate['index']}: area {area:.0f} too small")
+                continue
+            
+            # Enhanced individual metrics validation - balanced for initial detection
+            cosine_threshold = 0.70 if self.target_person_id is None else 0.65
+            euclidean_threshold = 0.75 if self.target_person_id is None else 0.8
+            
+            if candidate['cosine'] < cosine_threshold or candidate['euclidean'] > euclidean_threshold:
+                print(f"  Rejected candidate {candidate['index']}: poor individual metrics (cosine: {candidate['cosine']:.3f}, euclidean: {candidate['euclidean']:.3f})")
+                continue
+            
+            # Additional confidence requirement for initial detection
+            if self.target_person_id is None and confidence < 0.70:
+                print(f"  Rejected candidate {candidate['index']}: initial detection requires higher confidence ({confidence:.3f} < 0.70)")
+                continue
+            
+            # For initial detection, add color validation if available
+            if self.target_person_id is None and frame is not None and detector is not None:
+                try:
+                    # Extract current detection crop for color validation
+                    detection = detections[candidate['index']]
+                    x1, y1, x2, y2, _ = detection
+                    current_crop = detector.extract_person_crop(frame, (x1, y1, x2, y2))
+                    
+                    # Get reference image crop if available
+                    if hasattr(detector, 'reference_image') and detector.reference_image is not None:
+                        reference_crop = detector.reference_image
+                        
+                        if current_crop is not None and current_crop.size > 0:
+                            # Validate colors against reference
+                            color_score = detector.validate_target_colors(current_crop, reference_crop)
+                            print(f"  Candidate {candidate['index']} color validation score: {color_score:.3f}")
+                            
+                            # Be very lenient with color for screenshot references (video compression affects colors)
+                            if color_score < 0.10:
+                                print(f"  Rejected candidate {candidate['index']}: poor color match ({color_score:.3f} < 0.10)")
+                                continue
+                                
+                except Exception as e:
+                    print(f"  Color validation error for candidate {candidate['index']}: {e}")
+                    # Don't fail the detection due to color validation errors
+            
+            # This candidate passes all validation
+            print(f"✅ TARGET SELECTED: Candidate {candidate['index']} with similarity {similarity:.3f}")
+            return candidate['index']
         
-        return best_detection_idx
+        print("  No valid target candidates found after validation")
+        return None
     
     def try_recover_target_person(self, tracked_objects: List[Tuple[int, int, int, int, int]], 
                                  frame: np.ndarray, detector) -> Optional[int]:
@@ -419,8 +517,8 @@ class PersonTracker:
                 
                 print(f"  Track {track_id}: similarity = {final_similarity:.3f} (base: {similarity:.3f})")
                 
-                # Higher threshold for recovery with temporal consistency check
-                recovery_threshold = 0.65  # More strict for recovery
+                # Lower threshold for recovery to maintain stability
+                recovery_threshold = 0.55  # More lenient for recovery to prevent jumping
                 if (final_similarity > best_similarity and 
                     final_similarity >= recovery_threshold and
                     self.check_temporal_consistency((x1, y1, x2, y2), track_id)):
@@ -715,13 +813,47 @@ class PersonTracker:
     
     def get_all_trajectories(self) -> Dict[int, List[Tuple[int, int]]]:
         """
-        Get trajectories for all tracked objects.
+        Get trajectories only for the target person (filtered for visualization).
         
         Returns:
-            Dictionary mapping track_id to list of (x, y) points
+            Dictionary with only target person's trajectory
         """
-        all_trajectories = {}
-        for track_id, trajectory in self.trajectories.items():
-            all_trajectories[track_id] = [(x, y) for x, y, _ in trajectory]
+        target_trajectories = {}
         
-        return all_trajectories
+        # Only return target person's trajectory
+        if self.target_person_id is not None and self.target_person_id in self.trajectories:
+            target_trajectories[self.target_person_id] = [(x, y) for x, y, _ in self.trajectories[self.target_person_id]]
+        
+        return target_trajectories
+    
+    def get_complete_target_trajectory(self) -> List[Tuple[int, int]]:
+        """
+        Get the complete trajectory for target person across all ID changes.
+        This maintains the full path even if the target gets a new ID.
+        
+        Returns:
+            Complete list of (x, y) trajectory points for target person
+        """
+        if not hasattr(self, 'complete_target_trajectory'):
+            self.complete_target_trajectory = []
+            
+        return self.complete_target_trajectory
+    
+    def update_complete_target_trajectory(self, center_point: Tuple[int, int]):
+        """
+        Update the complete target trajectory with a new point.
+        This maintains the full trajectory across ID changes.
+        
+        Args:
+            center_point: (x, y) center point to add
+        """
+        if not hasattr(self, 'complete_target_trajectory'):
+            self.complete_target_trajectory = []
+            
+        # Add the new point
+        self.complete_target_trajectory.append(center_point)
+        
+        # Optionally limit trajectory length to prevent memory issues
+        max_trajectory_points = 1000  # Adjust as needed
+        if len(self.complete_target_trajectory) > max_trajectory_points:
+            self.complete_target_trajectory = self.complete_target_trajectory[-max_trajectory_points:]

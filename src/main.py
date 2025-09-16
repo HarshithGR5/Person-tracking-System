@@ -213,7 +213,7 @@ class PersonTrackingApp:
                             embeddings.append(embedding)
                         
                         target_detection_idx = self.tracker.find_target_person_from_embedding(
-                            detections, embeddings, self.reference_embedding
+                            detections, embeddings, self.reference_embedding, None, frame, self.detector
                         )
                         
                         if target_detection_idx is not None:
@@ -316,14 +316,16 @@ class PersonTrackingApp:
                     box_frame = self.visualizer.draw_all_tracks(
                         display_frame, tracked_objects, 
                         target_person_id=self.tracker.target_person_id,
-                        view_mode="box"
+                        view_mode="box",
+                        complete_target_trajectory=None  # No trajectory for box view
                     )
                     
                     flow_frame = self.visualizer.draw_all_tracks(
                         display_frame, tracked_objects,
                         trajectories=self.tracker.get_all_trajectories(),
                         target_person_id=self.tracker.target_person_id,
-                        view_mode="flow"
+                        view_mode="flow",
+                        complete_target_trajectory=self.tracker.get_complete_target_trajectory()
                     )
                     
                     # Combine side by side
@@ -332,12 +334,14 @@ class PersonTrackingApp:
                     )
                 else:
                     # Single view mode
-                    trajectories = self.tracker.get_all_trajectories() if self.view_mode == "flow" else None
+                    trajectories = self.tracker.get_all_trajectories() if self.view_mode in ["flow", "trail"] else None
+                    complete_trajectory = self.tracker.get_complete_target_trajectory() if self.view_mode in ["flow", "trail"] else None
                     output_frame = self.visualizer.draw_all_tracks(
                         display_frame, tracked_objects,
                         trajectories=trajectories,
                         target_person_id=self.tracker.target_person_id,
-                        view_mode=self.view_mode
+                        view_mode=self.view_mode,
+                        complete_target_trajectory=complete_trajectory
                     )
                 
                 # Add target detected notification if recently detected
